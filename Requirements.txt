@@ -1,0 +1,15 @@
+# requirements.txt
+# Correlation Heatmap -- pinned dependency versions
+#
+# Install:
+#   pip install -r requirements.txt
+#
+# Python >= 3.12 required (uses built-in type hints: list[str], tuple[...])
+
+yfinance==1.4.1
+pandas==3.0.2
+numpy==2.4.4
+scipy==1.17.1
+plotly==6.8.0
+seaborn==0.13.2
+matplotlib==3.10.8
