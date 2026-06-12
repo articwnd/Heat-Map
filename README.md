@@ -81,7 +81,7 @@ Log returns are preferred over simple returns because they are time-additive,
 more symmetric, and prevent negative compounded values.
 
 ### Correlation
-Two matrices are computed for every ticker pair:
+Two matrices are computed for every ticker pair using `pandas.DataFrame.corr()`:
 
 | Method | What it measures | Notes |
 |---|---|---|
@@ -92,6 +92,25 @@ A Pearson-Spearman divergence > 0.10 is automatically flagged in the summary
 output. Large divergence indicates potential non-linearity or outlier distortion
 in the Pearson estimate, both of which matter before feeding the matrix into
 an optimizer.
+
+**NaN convention -- pairwise-complete observations.** Both matrices use
+pandas' default pairwise-complete handling: for each ticker pair, only the
+dates where *both* series have data are used. This keeps Pearson and Spearman
+on a consistent footing and means a single late-IPO ticker or missing print
+does not NaN out that asset's entire row.
+
+> **Known limitation:** because each pairwise entry may be estimated on a
+> different effective sample, the resulting correlation matrix is **not
+> guaranteed to be positive semi-definite (PSD)** as a whole, even though
+> every individual entry is in `[-1, 1]`. This is fine for the heatmap and
+> HCA reorder in this script (the distance metric is computed entrywise).
+> It is **not** fine for feeding directly into Markowitz mean-variance
+> optimization, which requires a PSD covariance matrix and will error or
+> produce nonsensical weights otherwise. If you extend this project toward
+> an optimizer, either (a) restrict to `returns.dropna()` for a common
+> sample before computing correlations, or (b) apply a PSD-projection
+> step (e.g. nearest-correlation-matrix via `statsmodels` or eigenvalue
+> clipping) before optimization.
 
 ### Hierarchical Clustering (HCA) Reorder
 Assets are reordered so that similar assets appear adjacent, revealing block

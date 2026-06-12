@@ -51,3 +51,19 @@ CONFIG = {
     "output_html": "correlation_heatmap.html",
     "output_png": "correlation_heatmap.png",
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. DATA INGESTION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
+
+    
+    raw = yf.download(
+        tickers=tickers,
+        start=start,
+        end=end,
+        auto_adjust=True,
+        progress=False,
+        threads=True,
+    )
