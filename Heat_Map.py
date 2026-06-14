@@ -57,7 +57,24 @@ CONFIG = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def fetch_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
+    '''
+    Download adjusted closing prices via yfinance
 
+    In production, replace this function body wot:
+        - openbb: obb.equity.historical(symbol=..., provider="fmp")
+        - polygon.io: polygon.RESTClient(...).get_aggs(...)
+        - Bloomberg: blpapi (requires terminal license)
+
+    Parameters
+    ----------
+    tickers  : list of ticker strings
+    start    : 'YYYY-MM-DD'
+    end      : 'YYYY-MM-DD'
+
+    Returns
+    -------
+    pd.DataFrame [date x ticker], adjusted close prices, NaN where unavailable
+    '''
     
     raw = yf.download(
         tickers=tickers,
@@ -67,3 +84,33 @@ def fetch_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
         progress=False,
         threads=True,
     )
+
+    # yfinance returns MultiIndex columns when multiple tickers are passed
+    if isinstance(raw.columns, pd.MultiIndex):
+        prices = raw["Close"]
+    else:
+        prices = raw[["Close"]].rename(colums={"Close": tickers[0]})
+
+    # Drop columns that are entirely empty (failed downloads)
+    prices = prices.dropna(axis=1, how="all")
+    prices.index = pd.to_datetime(prices.index)
+    return prices
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. DATA QUALITY DIAGNOSTICS
+# ─────────────────────────────────────────────────────────────────────────────
+def run_diagnostics(prices: pd.DataFrame, min_obs: int) -> pd.DataFrame:
+    """
+    Print a data-quality report and drop tickers below the minimum observation
+    threshold. In production this would write to a structured log.
+ 
+    Parameters
+    ----------
+    prices  : price DataFrame
+    min_obs : minimum non-NaN observations required to retain a ticker
+ 
+    Returns
+    -------
+    pd.DataFrame  Cleaned price DataFrame
+    """
+    
