@@ -236,3 +236,19 @@ def hca_reorder(corr_matrix: pd.DataFrame) -> tuple[list[str], np.ndarray]:
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. ANNUALIZED VOLATILITY
 # ─────────────────────────────────────────────────────────────────────────────
+def annualized_vol(returns: pd.DataFrame, trading_days: int = 252) -> pd.Series:
+    """
+    Annualized volatility = daily_std * sqrt(252)
+    
+    Provides per-asset risk context displayed alongside the map
+
+    Parameters
+    ----------
+    returns: pd.DataFrame of log returns
+    trading-days: convention (252 for US equities, 365 for crypto)
+
+    Returns
+    -------
+    pd.Series annualized vol per ticker, as a decimal (e.g. 0.18 = 18%)
+    """
+    return returns.std() * np.sqrt(trading_days)
