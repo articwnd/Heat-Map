@@ -113,4 +113,126 @@ def run_diagnostics(prices: pd.DataFrame, min_obs: int) -> pd.DataFrame:
     -------
     pd.DataFrame  Cleaned price DataFrame
     """
+    print("\n" + "="*60)
+    print("DATA QUALITY DIAGNOSTICS")
+    print("="*60)
+
+    report = pd.DataFrame({
+        "obs": prices.notna().sum(),
+        "missing": prices.isna().sum(),
+        "pct_missing": (prices.isna().mean() * 100).round(2),
+        "start": prices.apply(lambda s: s.first_valid_index()),
+        "end": prices.apply(lambda s: s.last_valid_index()),
+    })
+
+    print(report.to_string())
+    print()
+
+    # Drop tickers below threshold
+    keep = report[report["obs"] >= min_obs].index.tolist()
+    dropped = [t for t in prices.columns if t not in keep]
+    if dropped:
+        print(f"[WARN] Dropping tickers below {min_obs}-obs threshold: {dropped}")
+
+
+    return prices[keep]
     
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. RETURN COMPUTATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_log_returns(prices: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute daily log returns: r_t = ln(P_t / P_{t-1})
+
+    Log returns are preferred over simple returns in quant because:
+        - They are time-additive (multi-period compoundign is a sum, not a product)
+        - They are more symmetric and closer to normally distribution
+        - They prevent negative compounded values
+
+    Parameters
+    ----------
+    prices : DataFrame of adjusted close prices
+
+    Returns
+    -------
+    DataFrame of log returns
+    """
+    log_returns = np.log(prices / prices.shift(1)).dropna(how="all")
+    return log_returns
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. CORRELATION MATRICES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_correlations(returns: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Compute Pearson and Spearman correlation matrices.
+
+    Pearson: measures linear co-movement, sensitive to outliers and non-linear relationships
+    spearman: rank-based, captures monotonic relationships, more robust to fat tails, which are 
+              more common in financial return distributions.
+
+    Parameters
+    ----------
+    returns : DataFrame of log returns
+
+    Returns
+    -------
+    (pearson_corr, spearman_corr) each a symmetric pd.DataFrame)
+    """
+    # both use pandas .corr(), which:
+    #    - returns a correctly-shaped NxN matric at any N (including N=2)
+    #      unlike scipy.stats.spearmanr which returns a bare scalar at N=2
+    #    - uses pairwise-complete observations for NaN handling, matching
+    #      Pearson's convention, unlike scipy's default nan_policy="propagate"
+    #      which NaNs out an entire row/column if a single value is missing
+
+    pearson = returns.corr(method="pearson")
+    spearman = returns.corr(method="spearman")
+
+    return pearson, spearman
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. HIERARCHICAL CLUSTERING REORDER
+# ─────────────────────────────────────────────────────────────────────────────
+def hca_reorder(corr_matrix: pd.DataFrame) -> tuple[list[str], np.ndarray]:
+    """
+    Reorder assets using Hierarchical Clustering Analysis (HCA) so that
+    similar assets appear adjacent in the heatmap, revealing block structures
+
+    Distance metric: d(i,j) = sqrt(0.5 * (1 - rho_{ij}))
+        - Bounded in [0,1]
+        - d=0 when rho=1 (perfect positive correlation)
+        - d=1 when rho=-1 (perfect negative correlation)
+        - d=sqrt(0.5) when rho=0 (uncorrelated)
+        - Satisfies triagnle inequality (it is a proper metric)
+
+    Linkage: ward minimizes within-cluster variance at each merge step.
+    This is the industry standard choice for financial asset clustering.    
+
+
+    Parameters
+    ----------
+    corr_matrix : DataFrame of correlations
+
+    Returns
+    -------
+    (ordered_tickers, linkage_matrix)
+    """
+    # work on a writable numpy array to avoid read-only DataFrame view errors
+    dist_arr = np.sqrt(0.5 * (1 - corr_matrix.values)).copy()
+    np.fill_diagonal(dist_arr, 0.0)
+
+    # condensed form retuired by scipy linkage
+    dist_condensed = squareform(dist_arr, checks=False)
+    linkage_matrix = hierarchy.linkage(dist_condensed, method="ward")
+
+    order = hierarchy.leaves_list(linkage_matrix)
+    ordered_tickers = [corr_matrix.columns[i] for i in order]
+
+    return ordered_tickers, linkage_matrix
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. ANNUALIZED VOLATILITY
+# ─────────────────────────────────────────────────────────────────────────────
