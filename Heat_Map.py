@@ -252,3 +252,154 @@ def annualized_vol(returns: pd.DataFrame, trading_days: int = 252) -> pd.Series:
     pd.Series annualized vol per ticker, as a decimal (e.g. 0.18 = 18%)
     """
     return returns.std() * np.sqrt(trading_days)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. INTERACTIVE PLOTLY HEATMAP
+# ─────────────────────────────────────────────────────────────────────────────
+def build_interactive_heatmap(
+        pearson: pd.DataFrame,
+        spearman: pd.DataFrame,
+        ordered_tickers: list[str],
+        ann_vol: pd.Series,
+        data_range: tuple[str, str],
+        output_path: str,
+) -> None:
+    """
+    Build and save an interactive Plotly heatmap with:
+        - HCA-ordered Peason correlation as the primary heatmap
+        - Spearman correlation in hover tooltip for comparison
+        - Annualized volatility bar chart as a sidebar
+        - Diverging RdBu_r color scale centered at 0
+
+    Output is a self-contained HTML file (no server required)
+
+    Parameters
+    ----------
+    pearson : Pearson correlation DataFrame
+    spearman: Spearman correlation DataFrame
+    ordered_tickers: HCA-reordered ticker list
+    ann_vol: annualized volatility Series
+    data_range: (start_date, end_date) 
+    output_path: file path for output HTML
+    """
+
+    p = pearson.loc[ordered_tickers, ordered_tickers]
+    s = spearman.loc[ordered_tickers, ordered_tickers]
+    n = len(ordered_tickers)
+
+    # --- Build hover text matrix ----------------------------------------
+    hover_text = []
+    for row_ticker in ordered_tickers:
+        row = []
+        for col_ticker in ordered_tickers:
+            pval = p.loc[row_ticker, col_ticker]
+            sval = s.loc[row_ticker, col_ticker]
+            cell = (
+                f"<b>{row_ticker} & {col_ticker}</b><br>"
+                f"Pearson: {pval:.4f}<br>"
+                f"Spearman: {sval:.4f}"
+                f"<i>Vol({row_ticker}): {ann_vol[row_ticker]:.1%}</i><br>"
+                f"<i>Vol({col_ticker}): {ann_vol[col_ticker]:.1%}</i><br>"
+            )
+            row.append(cell)
+        hover_text.append(row)
+
+    # --- Build annotation text (show numeric labels on cells) -----------
+    annot_text = [[f"{p.loc[r,c]:.2f}" for c in ordered_tickers] 
+                  for r in ordered_tickers]
+
+    # --- Build font color matrix (black on mid values, white on extremes) --
+    font_colors = []
+    for row_ticker in ordered_tickers:
+        row = []
+        for col_ticker in ordered_tickers:
+            val = abs(p.loc[row_ticker, col_ticker])
+            row.append("white" if val > 0.65 else "black")
+        font_colors.append(row)
+
+    # --- Subplots: heatmap (left) + vol bar (right) ----------------------
+    fig = make_subplots(
+        row=1, cols=2,
+        column_widths=[0.82, 0.18],
+        subplot_titles=["Pearson correlation (HCA-Ordered)", "Annualized Volatility"],
+        horizontal_spacing=0.06,
+    )
+
+    # Primary heatmap
+    fig.add_trace(
+        go.Heatmap( 
+            z=p.values,
+            x=ordered_tickers,
+            y=ordered_tickers,
+            text=hover_text,
+            hovertemplate="%{text}<extra></extra>",
+            colorscale="RdBu_r",
+            zmin=-1, 
+            zmax=1,
+            colorscale="RdBu_r",
+            colorbar=dict(
+                title="Pearson r",
+                thickness=15,
+                len=0.8,
+                x=0.80,
+            ),
+            # Annotate cells with numeric labels
+            texttemplate="%{z:.2f}",
+            textfont=dict(size=10)
+        ),
+        row=1, col=1
+    )
+
+    # Volatility bar chart
+    vol_ordered = ann_vol[ordered_tickers]
+    bar_colors = [
+        f"rgba({int(255*(v/vol_ordered.max()))}, 80, 80, 0.85)" for v in vol_ordered.values
+    ]
+
+    fig.add_trace(
+        go.Bar(
+            x=vol_ordered.values,
+            y=ordered_tickers,
+            orientation="h",
+            marker_color=bar_colors,
+            showlegend=False,
+            hovertemplate="<b>%{y}</b><br>Ann. Volatility: %{x:.1%}<extra></extra>",
+        ),
+        row=1, col=2
+    )
+
+    # --- Layout tweaks ------------------------------------------------------
+    fig.update_layout(
+        title=dict(
+            text=(
+                f"<b>stock Correlation Heatmap</b> |  |  "
+                f"{data_range[0]} to {data_range[1]}<br>"
+                f"<sup>Daily log returns  | HCA reordered: Ward linkage, "
+                f"d = sqrt(0.5*(1-rho))  | Hover for Spearman r</sup>"
+            ),
+            x=0.5,
+            font=dict(size=14),
+        ),
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#161b22",
+        font=dict(color="#e6edf3", family="monospace"),
+        height=680,
+        width=1050,
+        margin=dict(t=100, b=60, l=70, r=20),
+    )
+
+    # Axis styling
+    axis_style = dict(
+        showgrid=False,
+        linecolor="#30363d",
+        tickfont=dict(size=11, color="#e6edf3"),
+    )
+    fig.update_xaxes(axis_style, tickangle=-40, row=1, col=1)
+    fig.update_yaxes(axis_style, row=1, col=1)
+    fig.update_xaxes(tickformat=".0%", row=1, col=2)
+    fig.update_yaxes(showticklabels=False, row=1, col=2)
+
+    # save
+    fig.write_html(output_path, include_plotlyjs="cdn")
+    print(f"[OK] Interactive heatmap saved -> {output_path}")
+    
